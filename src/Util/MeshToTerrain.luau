@@ -51,6 +51,11 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
       local vy = math.floor(p.Y / RESOLUTION)
       local vz = math.floor(p.Z / RESOLUTION)
 
+      -- Safety check for NaN or Infinity
+      if vx ~= vx or vy ~= vy or vz ~= vz or math.abs(vx) == math.huge or math.abs(vy) == math.huge or math.abs(vz) == math.huge then
+        continue
+      end
+
       if not filledVoxels[vx] then
         filledVoxels[vx] = {}
       end
@@ -188,7 +193,11 @@ function MeshToTerrain:Convert(
   -- EditableMesh vertices are in local space relative to MeshSize
   local scaleFactor = size
   if part:IsA("MeshPart") then
-    scaleFactor = size / (part :: MeshPart).MeshSize
+    local meshSize = (part :: MeshPart).MeshSize
+    local sx = meshSize.X == 0 and 1 or (size.X / meshSize.X)
+    local sy = meshSize.Y == 0 and 1 or (size.Y / meshSize.Y)
+    local sz = meshSize.Z == 0 and 1 or (size.Z / meshSize.Z)
+    scaleFactor = Vector3.new(sx, sy, sz)
   end
 
   -- 3. Cache all vertices in world space
