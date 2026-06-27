@@ -71,14 +71,14 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
       -- Store exact height for top surface
       local currentTop = filledVoxels[vx][vz][vy]
 
-      if currentTop == true then
-        -- Voxel ini sudah terkubur oleh permukaan yang lebih tinggi. Biarkan tetap solid.
-      elseif type(currentTop) == "number" then
-        if p.Y > currentTop then
+      if currentTop ~= true then
+        if type(currentTop) == "number" then
+          if p.Y > currentTop then
+            filledVoxels[vx][vz][vy] = p.Y
+          end
+        else
           filledVoxels[vx][vz][vy] = p.Y
         end
-      else
-        filledVoxels[vx][vz][vy] = p.Y
       end
 
       -- Selalu pastikan kedalaman shell solid ke arah DALAM (-normal) DAN ke BAWAH (-Y).
@@ -92,8 +92,12 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
         local ivy = math.floor(inwardP.Y / RESOLUTION)
         local ivz = math.floor(inwardP.Z / RESOLUTION)
 
-        if not filledVoxels[ivx] then filledVoxels[ivx] = {} end
-        if not filledVoxels[ivx][ivz] then filledVoxels[ivx][ivz] = {} end
+        if not filledVoxels[ivx] then
+          filledVoxels[ivx] = {}
+        end
+        if not filledVoxels[ivx][ivz] then
+          filledVoxels[ivx][ivz] = {}
+        end
 
         if filledVoxels[ivx][ivz][ivy] ~= true then
            filledVoxels[ivx][ivz][ivy] = true
@@ -192,9 +196,13 @@ local function writeSubRegion(
         for x = 1, regionSize.X do
           local sum = 0
           local minK = x - R
-          if minK < 1 then minK = 1 end
+          if minK < 1 then
+            minK = 1
+          end
           local maxK = x + R
-          if maxK > regionSize.X then maxK = regionSize.X end
+          if maxK > regionSize.X then
+            maxK = regionSize.X
+          end
           for k = minK, maxK do
             sum = sum + tempX[k]
           end
@@ -213,9 +221,13 @@ local function writeSubRegion(
         for y = 1, regionSize.Y do
           local sum = 0
           local minK = y - R
-          if minK < 1 then minK = 1 end
+          if minK < 1 then
+            minK = 1
+          end
           local maxK = y + R
-          if maxK > regionSize.Y then maxK = regionSize.Y end
+          if maxK > regionSize.Y then
+            maxK = regionSize.Y
+          end
           for k = minK, maxK do
             sum = sum + tempY[k]
           end
@@ -234,9 +246,13 @@ local function writeSubRegion(
         for z = 1, regionSize.Z do
           local sum = 0
           local minK = z - R
-          if minK < 1 then minK = 1 end
+          if minK < 1 then
+            minK = 1
+          end
           local maxK = z + R
-          if maxK > regionSize.Z then maxK = regionSize.Z end
+          if maxK > regionSize.Z then
+            maxK = regionSize.Z
+          end
           for k = minK, maxK do
             sum = sum + tempZ[k]
           end
