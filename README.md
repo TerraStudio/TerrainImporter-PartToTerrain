@@ -40,4 +40,9 @@ wally install
 rojo build -p TerrainImporterV1.0.rbxm
 ```
 
-
+## Credits
+- [TigerCaptain](https://roblox.com/users/19053090/profile) - Original concept
+- [CloneTrooper1019](https://roblox.com/users/2032622/profile) - Helped with the original plugin
+- [Valletta](https://twitter.com/valletta__) - Created the logo for this plugin
+- [mkargus](https://github.com/mkargus/PartToTerrain) - Author of the original open-source plugin
+- **Refitted by Project Terra** - Added Voxel Chunking & GLB/EditableMesh generation
