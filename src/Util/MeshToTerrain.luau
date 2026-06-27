@@ -81,11 +81,12 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
         filledVoxels[vx][vz][vy] = p.Y
       end
 
-      -- Selalu pastikan kedalaman shell solid ke arah DALAM (berlawanan arah normal).
-      -- Ini sangat krusial untuk mencegah bolong/lubang pada tebing curam (vertical cliffs)
-      -- yang sebelumnya terlalu tipis secara horizontal sehingga terhapus oleh filter blur.
-      local FILL_DEPTH = 3
+      -- Selalu pastikan kedalaman shell solid ke arah DALAM (-normal) DAN ke BAWAH (-Y).
+      -- Kombinasi ini sangat krusial untuk mencegah bolong pada tebing curam (inward) 
+      -- dan memperbaiki masalah normals terbalik dari Blender / sudut lembah (downward).
+      local FILL_DEPTH = 4
       for depth = 1, FILL_DEPTH do
+        -- 1. Fill Inward (Mencegah tebing vertikal terhapus blur)
         local inwardP = p - normal * (depth * RESOLUTION)
         local ivx = math.floor(inwardP.X / RESOLUTION)
         local ivy = math.floor(inwardP.Y / RESOLUTION)
@@ -96,6 +97,12 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
 
         if filledVoxels[ivx][ivz][ivy] ~= true then
            filledVoxels[ivx][ivz][ivy] = true
+        end
+
+        -- 2. Fill Downward (Mencegah sudut lembah/normals terbalik terhapus blur)
+        local belowVy = vy - depth
+        if filledVoxels[vx][vz][belowVy] ~= true then
+           filledVoxels[vx][vz][belowVy] = true
         end
       end
     end
