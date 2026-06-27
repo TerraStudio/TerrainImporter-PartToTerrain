@@ -29,7 +29,7 @@
 1. Ensure you have Git, Wally, and Rojo installed (`rokit install` recommended).
 2. Clone the repo:
 ```
-git clone https://github.com/TerraStudio/TerrainImporter_RBLX.git
+git clone https://github.com/TerraStudio/TerrainImporter-PartToTerrain.git
 ```
 3. Install packages via Wally:
 ```
