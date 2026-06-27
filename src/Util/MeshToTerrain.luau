@@ -150,6 +150,93 @@ local function writeSubRegion(
   end
 
   if modified then
+    -- =========================================================================
+    -- FAST POST-PROCESSING: Separable Box Blur (Smoothing)
+    -- O(N) Algorithmic complexity for instant processing even on huge scales.
+    -- Radius 1 (3x3x3 filter) untuk kehalusan yang natural tanpa menghilangkan detail.
+    -- =========================================================================
+    local R = 1
+
+    -- Pass 1: Blur along X
+    local tempX = table.create(regionSize.X, 0)
+    for y = 1, regionSize.Y do
+      for z = 1, regionSize.Z do
+        for x = 1, regionSize.X do
+          tempX[x] = occupancyVoxels[x][y][z]
+        end
+        for x = 1, regionSize.X do
+          local sum = 0
+          local minK = x - R
+          if minK < 1 then minK = 1 end
+          local maxK = x + R
+          if maxK > regionSize.X then maxK = regionSize.X end
+          for k = minK, maxK do
+            sum = sum + tempX[k]
+          end
+          occupancyVoxels[x][y][z] = sum / (maxK - minK + 1)
+        end
+      end
+    end
+
+    -- Pass 2: Blur along Y
+    local tempY = table.create(regionSize.Y, 0)
+    for x = 1, regionSize.X do
+      for z = 1, regionSize.Z do
+        for y = 1, regionSize.Y do
+          tempY[y] = occupancyVoxels[x][y][z]
+        end
+        for y = 1, regionSize.Y do
+          local sum = 0
+          local minK = y - R
+          if minK < 1 then minK = 1 end
+          local maxK = y + R
+          if maxK > regionSize.Y then maxK = regionSize.Y end
+          for k = minK, maxK do
+            sum = sum + tempY[k]
+          end
+          occupancyVoxels[x][y][z] = sum / (maxK - minK + 1)
+        end
+      end
+    end
+
+    -- Pass 3: Blur along Z
+    local tempZ = table.create(regionSize.Z, 0)
+    for x = 1, regionSize.X do
+      for y = 1, regionSize.Y do
+        for z = 1, regionSize.Z do
+          tempZ[z] = occupancyVoxels[x][y][z]
+        end
+        for z = 1, regionSize.Z do
+          local sum = 0
+          local minK = z - R
+          if minK < 1 then minK = 1 end
+          local maxK = z + R
+          if maxK > regionSize.Z then maxK = regionSize.Z end
+          for k = minK, maxK do
+            sum = sum + tempZ[k]
+          end
+          occupancyVoxels[x][y][z] = sum / (maxK - minK + 1)
+        end
+      end
+    end
+
+    -- Apply blurred materials fix-up
+    for x = 1, regionSize.X do
+      for y = 1, regionSize.Y do
+        for z = 1, regionSize.Z do
+          local occ = occupancyVoxels[x][y][z]
+          local oldMat = materialVoxels[x][y][z]
+          
+          if occ > 0.1 and oldMat == Enum.Material.Air then
+            materialVoxels[x][y][z] = material
+          elseif occ < 0.05 and oldMat ~= Enum.Material.Air then
+            materialVoxels[x][y][z] = Enum.Material.Air
+            occupancyVoxels[x][y][z] = 0
+          end
+        end
+      end
+    end
+
     workspace.Terrain:WriteVoxels(region, RESOLUTION, materialVoxels, occupancyVoxels)
   end
 end
