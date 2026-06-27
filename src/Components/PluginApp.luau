@@ -43,7 +43,7 @@ function PluginApp:init()
   end)
 
   -- TODO: Make PluginToolbar & PluginToolbarButton into a Roact component
-  self.toolbar = self.plugin:CreateToolbar('mkargus')
+  self.toolbar = self.plugin:CreateToolbar('Project Terra')
 
   self.button = self.toolbar:CreateButton(
     Localization('Plugin.Name') .. if Constants.IS_DEV_CHANNEL then '[DEV]' else '',
@@ -61,11 +61,122 @@ function PluginApp:init()
   end)
 
   ----------------------------------------
+  -- Batch Conversion Helper
+  ----------------------------------------
+  self._isConverting = false
+
+  local function convertSinglePart(part: BasePart)
+    local shape, cframe, size = TerrainUtil:GetPartInfo(part)
+    local material = Store:Get('Material')
+    local preserveTerrain = Settings:Get('PreserveTerrain')
+
+    local success = TerrainUtil:ConvertToTerrain(part, shape, material, cframe, size, preserveTerrain)
+    if success then
+      if Settings:Get('DeletePart') then
+        part.Parent = nil
+      end
+    end
+    return success
+  end
+
+  local function batchConvertParts(parts: { BasePart })
+    if self._isConverting then
+      warn("[PartToTerrain] A conversion is already in progress. Please wait.")
+      return
+    end
+    self._isConverting = true
+
+    task.spawn(function()
+      local chRecording = ChangeHistoryService:TryBeginRecording('PartToTerrain')
+      local totalParts = #parts
+      local successCount = 0
+
+      print(string.format("[PartToTerrain] Starting batch conversion of %d part(s)...", totalParts))
+
+      for i, part in ipairs(parts) do
+        print(string.format("[PartToTerrain] Converting chunk %d/%d: %s", i, totalParts, part.Name))
+        local ok = convertSinglePart(part)
+        if ok then
+          successCount = successCount + 1
+        else
+          warn(string.format("[PartToTerrain] Failed to convert chunk %d/%d: %s", i, totalParts, part.Name))
+        end
+        -- Yield between parts to keep Studio responsive
+        if i < totalParts then
+          task.wait()
+        end
+      end
+
+      print(string.format("[PartToTerrain] Batch conversion complete! %d/%d chunks converted successfully.", successCount, totalParts))
+
+      if chRecording then
+        if successCount > 0 then
+          ChangeHistoryService:FinishRecording(chRecording, Enum.FinishRecordingOperation.Commit)
+        else
+          ChangeHistoryService:FinishRecording(chRecording, Enum.FinishRecordingOperation.Cancel)
+        end
+      end
+
+      self._isConverting = false
+    end)
+  end
+
+  ----------------------------------------
+  -- Plugin Action: Convert All Selected MeshParts
+  ----------------------------------------
+  local convertSelectedAction = self.plugin:CreatePluginAction(
+    'PartToTerrain_ConvertSelected',
+    'Convert Selected to Terrain',
+    'Converts all selected MeshParts to terrain sequentially.',
+    '',
+    true
+  )
+
+  self.ConvertSelectedActionConnection = convertSelectedAction.Triggered:Connect(function()
+    if not self.state.guiEnabled then
+      return
+    end
+
+    local selected = Selection:Get()
+    local meshParts: { BasePart } = {}
+
+    for _, obj in ipairs(selected) do
+      if TerrainUtil:IsConvertibleToTerrain(obj) and obj:IsA('MeshPart') then
+        table.insert(meshParts, obj :: BasePart)
+      end
+    end
+
+    if #meshParts == 0 then
+      warn("[PartToTerrain] No convertible MeshParts selected.")
+      return
+    end
+
+    batchConvertParts(meshParts)
+  end)
+
+  ----------------------------------------
   -- Plugin Mouse
   ----------------------------------------
   self.pluginMouse = self.plugin:GetMouse()
 
   self.PluginMouseClickConnection = self.pluginMouse.Button1Down:Connect(function()
+    -- Shift+Click: Convert all selected MeshParts (batch mode)
+    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
+      local selected = Selection:Get()
+      local meshParts: { BasePart } = {}
+
+      for _, obj in ipairs(selected) do
+        if TerrainUtil:IsConvertibleToTerrain(obj) and obj:IsA('MeshPart') then
+          table.insert(meshParts, obj :: BasePart)
+        end
+      end
+
+      if #meshParts > 0 then
+        batchConvertParts(meshParts)
+        return
+      end
+    end
+
     local cameraPos = workspace.CurrentCamera.CFrame.Position
     local dir = self.pluginMouse.UnitRay.Direction
     local RaycastResults = workspace:Raycast(cameraPos, dir * Constants.RAYCAST_LENGTH, raycastParams)
@@ -92,21 +203,8 @@ function PluginApp:init()
       return
     end
 
-    local shape, cframe, size = TerrainUtil:GetPartInfo(obj)
-    local material = Store:Get('Material')
-    local preserveTerrain = Settings:Get('PreserveTerrain')
-
-    local chRecording = ChangeHistoryService:TryBeginRecording('PartToTerrain')
-
-    local success = TerrainUtil:ConvertToTerrain(shape, material, cframe, size, preserveTerrain)
-    if success then
-      if Settings:Get('DeletePart') then
-        obj.Parent = nil
-      end
-      ChangeHistoryService:FinishRecording(chRecording, Enum.FinishRecordingOperation.Commit)
-    else
-      ChangeHistoryService:FinishRecording(chRecording, Enum.FinishRecordingOperation.Cancel)
-    end
+    local part = obj :: BasePart
+    batchConvertParts({ part })
   end)
 end
 
@@ -153,6 +251,7 @@ function PluginApp:componentWillUnmount()
   self.button:Destroy()
 
   self.PluginMouseClickConnection:Disconnect()
+  self.ConvertSelectedActionConnection:Disconnect()
 end
 
 return PluginApp

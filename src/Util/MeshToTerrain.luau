@@ -1,0 +1,267 @@
+-- MeshToTerrain.luau
+-- Separated from TerrainConverter to avoid --!native incompatibility with task.wait()
+-- This module handles MeshPart → Terrain conversion using EditableMesh API
+-- with Voxel Region Chunking, Progress Indicator, and CPU Yielding.
+
+local Constants = require(script.Parent.Constants)
+
+local TerrainEnum = require(script.Parent.TerrainEnum)
+
+local AssetService = game:GetService("AssetService")
+
+local RESOLUTION = Constants.VOXEL_RESOLUTION
+local MAX_CHUNK_VOXELS = 128 -- max voxels per axis per sub-region (128^3 = ~2M, well under 4M limit)
+local MAX_CHUNK_STUDS = MAX_CHUNK_VOXELS * RESOLUTION -- 512 studs
+
+local MeshToTerrain = {}
+
+--------------------------------------------------------------------------------
+-- Triangle Rasterization (surface only / hollow)
+-- Samples points along the surface of a triangle and marks corresponding voxels
+--------------------------------------------------------------------------------
+local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, filledVoxels: { [number]: { [number]: { [number]: boolean } } })
+  local v12 = v2 - v1
+  local v13 = v3 - v1
+
+  -- Sample every 1.5 studs (safely covers 4x4x4 voxel diagonals without skipping)
+  local stepSize = 1.5
+  
+  local stepsU = math.max(1, math.ceil(v12.Magnitude / stepSize))
+  local stepsV = math.max(1, math.ceil(v13.Magnitude / stepSize))
+
+  for i = 0, stepsU do
+    local u = i / stepsU
+    
+    -- Scale the number of V steps proportionally to the remaining width (1 - u)
+    local currentStepsV = math.max(1, math.ceil(stepsV * (1 - u)))
+    
+    for j = 0, currentStepsV do
+      local v = (j / currentStepsV) * (1 - u)
+      local p = v1 + v12 * u + v13 * v
+
+      local vx = math.floor(p.X / RESOLUTION)
+      local vy = math.floor(p.Y / RESOLUTION)
+      local vz = math.floor(p.Z / RESOLUTION)
+
+      if not filledVoxels[vx] then
+        filledVoxels[vx] = {}
+      end
+      if not filledVoxels[vx][vy] then
+        filledVoxels[vx][vy] = {}
+      end
+      filledVoxels[vx][vy][vz] = true
+    end
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Write a sub-region of voxels to terrain
+--------------------------------------------------------------------------------
+local function writeSubRegion(
+  subMin: Vector3,
+  subMax: Vector3,
+  material: Enum.Material,
+  preserveTerrain: boolean?,
+  filledVoxels: { [number]: { [number]: { [number]: boolean } } }
+)
+  local region = Region3.new(subMin, subMax):ExpandToGrid(RESOLUTION)
+  local regionMin = region.CFrame.Position - region.Size / 2
+
+  local materialVoxels, occupancyVoxels = workspace.Terrain:ReadVoxels(region, RESOLUTION)
+  local regionSize = materialVoxels.Size
+
+  local modified = false
+
+  for x = 1, regionSize.X do
+    local worldVx = math.floor((regionMin.X + (x - 0.5) * RESOLUTION) / RESOLUTION)
+
+    for y = 1, regionSize.Y do
+      local worldVy = math.floor((regionMin.Y + (y - 0.5) * RESOLUTION) / RESOLUTION)
+
+      for z = 1, regionSize.Z do
+        local worldVz = math.floor((regionMin.Z + (z - 0.5) * RESOLUTION) / RESOLUTION)
+
+        if filledVoxels[worldVx] and filledVoxels[worldVx][worldVy] and filledVoxels[worldVx][worldVy][worldVz] then
+          if preserveTerrain then
+            local cellOccupancy = occupancyVoxels[x][y][z]
+            if 1 > cellOccupancy then
+              occupancyVoxels[x][y][z] = 1
+            end
+            local cellMaterial = materialVoxels[x][y][z]
+            if cellMaterial == Enum.Material.Air then
+              materialVoxels[x][y][z] = material
+            end
+          else
+            occupancyVoxels[x][y][z] = 1
+            materialVoxels[x][y][z] = material
+          end
+          modified = true
+        end
+      end
+    end
+  end
+
+  if modified then
+    workspace.Terrain:WriteVoxels(region, RESOLUTION, materialVoxels, occupancyVoxels)
+  end
+end
+
+--------------------------------------------------------------------------------
+-- Main conversion function
+-- Converts a MeshPart to terrain using EditableMesh triangle rasterization
+-- with automatic region chunking for large meshes
+--------------------------------------------------------------------------------
+function MeshToTerrain:Convert(
+  part: BasePart,
+  material: Enum.Material,
+  cframe: CFrame,
+  size: Vector3,
+  preserveTerrain: boolean?,
+  progressCallback: ((message: string) -> ())?
+): (boolean, string?)
+  local function reportProgress(msg: string)
+    if progressCallback then
+      progressCallback(msg)
+    end
+    print("[PartToTerrain]", msg)
+  end
+
+  -- 1. Create EditableMesh from MeshPart
+  reportProgress("Loading mesh geometry...")
+  local success, result = pcall(function()
+    local meshId = (part :: MeshPart).MeshId
+    local meshContent = Content.fromUri(meshId)
+    return AssetService:CreateEditableMeshAsync(meshContent)
+  end)
+  local editableMesh = result :: any
+
+  if not success or not editableMesh then
+    warn("[PartToTerrain] Failed to create EditableMesh:", tostring(result))
+    return false, TerrainEnum.ConvertError.UnknownShape
+  end
+
+  -- 2. Calculate scale factor (1:1 with Blender)
+  -- EditableMesh vertices are in local space relative to MeshSize
+  local scaleFactor = size
+  if part:IsA("MeshPart") then
+    scaleFactor = size / (part :: MeshPart).MeshSize
+  end
+
+  -- 3. Cache all vertices in world space
+  reportProgress("Caching vertices...")
+  local vertices: { [any]: Vector3 } = {}
+  local vertIds = editableMesh:GetVertices()
+  for _, id in ipairs(vertIds) do
+    local localPos = editableMesh:GetPosition(id)
+    local scaledPos = localPos * scaleFactor
+    vertices[id] = cframe * scaledPos
+  end
+  reportProgress(string.format("Cached %d vertices.", #vertIds))
+
+  -- 4. Rasterize all triangles into a sparse voxel dictionary
+  -- filledVoxels[vx][vy][vz] = true means this voxel should be terrain
+  local filledVoxels: { [number]: { [number]: { [number]: boolean } } } = {}
+  local faces = editableMesh:GetFaces()
+  local totalFaces = #faces
+  local faceCount = 0
+
+  reportProgress(string.format("Rasterizing %d faces...", totalFaces))
+
+  for _, faceId in ipairs(faces) do
+    local faceVerts = editableMesh:GetFaceVertices(faceId)
+    if #faceVerts >= 3 then
+      -- Triangulate in case it's a polygon with > 3 vertices
+      for i = 2, #faceVerts - 1 do
+        local p1 = vertices[faceVerts[1]]
+        local p2 = vertices[faceVerts[i]]
+        local p3 = vertices[faceVerts[i + 1]]
+        if p1 and p2 and p3 then
+          rasterizeTriangleToDict(p1, p2, p3, filledVoxels)
+        end
+      end
+    end
+
+    faceCount = faceCount + 1
+    if faceCount % 2000 == 0 then
+      reportProgress(string.format("Rasterizing faces... %d/%d (%.0f%%)", faceCount, totalFaces, (faceCount / totalFaces) * 100))
+      task.wait()
+    end
+  end
+
+  reportProgress("Rasterization complete. Writing terrain...")
+
+  -- 5. Calculate overall AABB from filled voxels
+  local minVx, minVy, minVz = math.huge, math.huge, math.huge
+  local maxVx, maxVy, maxVz = -math.huge, -math.huge, -math.huge
+
+  for vx, yTable in pairs(filledVoxels) do
+    if vx < minVx then
+      minVx = vx
+    end
+    if vx > maxVx then
+      maxVx = vx
+    end
+    for vy, zTable in pairs(yTable) do
+      if vy < minVy then
+        minVy = vy
+      end
+      if vy > maxVy then
+        maxVy = vy
+      end
+      for vz, _ in pairs(zTable) do
+        if vz < minVz then
+          minVz = vz
+        end
+        if vz > maxVz then
+          maxVz = vz
+        end
+      end
+    end
+  end
+
+  if minVx == math.huge then
+    warn("[PartToTerrain] No voxels were generated from the mesh.")
+    return false, TerrainEnum.ConvertError.InvalidSize
+  end
+
+  -- Convert voxel indices to world coordinates
+  local worldMin = Vector3.new(minVx * RESOLUTION, minVy * RESOLUTION, minVz * RESOLUTION)
+  local worldMax = Vector3.new((maxVx + 1) * RESOLUTION, (maxVy + 1) * RESOLUTION, (maxVz + 1) * RESOLUTION)
+
+  -- 6. Split into sub-regions (chunking) and write terrain
+  local totalChunksX = math.ceil((worldMax.X - worldMin.X) / MAX_CHUNK_STUDS)
+  local totalChunksY = math.ceil((worldMax.Y - worldMin.Y) / MAX_CHUNK_STUDS)
+  local totalChunksZ = math.ceil((worldMax.Z - worldMin.Z) / MAX_CHUNK_STUDS)
+  local totalChunks = totalChunksX * totalChunksY * totalChunksZ
+  local chunksDone = 0
+
+  for cx = 0, totalChunksX - 1 do
+    for cy = 0, totalChunksY - 1 do
+      for cz = 0, totalChunksZ - 1 do
+        local subMin = Vector3.new(
+          worldMin.X + cx * MAX_CHUNK_STUDS,
+          worldMin.Y + cy * MAX_CHUNK_STUDS,
+          worldMin.Z + cz * MAX_CHUNK_STUDS
+        )
+        local subMax = Vector3.new(
+          math.min(worldMin.X + (cx + 1) * MAX_CHUNK_STUDS, worldMax.X),
+          math.min(worldMin.Y + (cy + 1) * MAX_CHUNK_STUDS, worldMax.Y),
+          math.min(worldMin.Z + (cz + 1) * MAX_CHUNK_STUDS, worldMax.Z)
+        )
+
+        writeSubRegion(subMin, subMax, material, preserveTerrain, filledVoxels)
+
+        chunksDone = chunksDone + 1
+        if totalChunks > 1 then
+          reportProgress(string.format("Writing terrain sub-region %d/%d...", chunksDone, totalChunks))
+          task.wait()
+        end
+      end
+    end
+  end
+
+  reportProgress("Terrain conversion complete!")
+  return true
+end
+
+return MeshToTerrain

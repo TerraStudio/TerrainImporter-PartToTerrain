@@ -138,4 +138,10 @@ function TerrainConverter:FillWedge(material: Enum.Material, cframe: CFrame, siz
   return true
 end
 
+local MeshToTerrain = require(script.Parent.MeshToTerrain)
+
+function TerrainConverter:FillMeshPart(part: BasePart, material: Enum.Material, cframe: CFrame, size: Vector3, preserveTerrain: boolean?): (boolean, string?)
+  return MeshToTerrain:Convert(part, material, cframe, size, preserveTerrain)
+end
+
 return TerrainConverter

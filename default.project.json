@@ -1,5 +1,5 @@
 {
-  "name": "Part to Terrain",
+  "name": "TerrainImporterV1.0",
   "tree": {
     "$path": "src",
     "Packages": {

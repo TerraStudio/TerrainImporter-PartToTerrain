@@ -17,8 +17,8 @@ function TerrainUtil:IsConvertibleToTerrain(instance: Instance): boolean
     return false
   end
 
-  -- Disallow Mesh, CSG, CornerWedge or SpawnLocation parts
-  if instance:IsA('TriangleMeshPart') or instance:IsA('CornerWedgePart') or instance:IsA('SpawnLocation') then
+  -- Disallow CSG, CornerWedge or SpawnLocation parts
+  if instance:IsA('CornerWedgePart') or instance:IsA('SpawnLocation') then
     return false
   end
 
@@ -76,12 +76,14 @@ function TerrainUtil:GetPartInfo(part: BasePart): (string, CFrame, Vector3)
 
   elseif part:IsA('WedgePart') then
     return TerrainEnum.Shape.Wedge, cframe, size
+  elseif part:IsA('MeshPart') then
+    return TerrainEnum.Shape.MeshPart, cframe, size
   end
 
   return TerrainEnum.Shape.Block, cframe, size
 end
 
-function TerrainUtil:ConvertToTerrain(shape: string, material: Enum.Material, cframe: CFrame, size: Vector3, preserveTerrain: boolean?): (boolean, string?)
+function TerrainUtil:ConvertToTerrain(part: BasePart, shape: string, material: Enum.Material, cframe: CFrame, size: Vector3, preserveTerrain: boolean?): (boolean, string?)
   if size.X <= 0 or size.Y <= 0 or size.Z <= 0 then
     return false, TerrainEnum.ConvertError.InvalidSize
   end
@@ -107,6 +109,8 @@ function TerrainUtil:ConvertToTerrain(shape: string, material: Enum.Material, cf
 
     elseif shape == TerrainEnum.Shape.Wedge then
       return TerrainConverter:FillWedge(material, cframe, size)
+    elseif shape == TerrainEnum.Shape.MeshPart then
+      return TerrainConverter:FillMeshPart(part, material, cframe, size, preserveTerrain)
     end
 
     return false, TerrainEnum.ConvertError.UnknownShape

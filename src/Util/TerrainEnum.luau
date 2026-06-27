@@ -12,6 +12,7 @@ TerrainEnum.Shape = {
   CylinderRotate = 'CylinderRotate',
 
   Wedge = 'Wedge',
+  MeshPart = 'MeshPart',
 }
 
 TerrainEnum.ConvertError = {

@@ -1,5 +1,5 @@
 Key,en_US,zh_CN,ko_KR,ja_JP,es_ES,pt_BR,fr_FR,it_IT,zh_TW,de_DE,vi_VN
-Plugin.Name,Part to Terrain,部件至地形,파트를 지형으로,地形のパーツ,Parte en Terreno,Parte para terreno,Partie du terrrain,Parte in terreno,零件到地形,Teil zu Gelände,Chuyển đổi Bộ Phận thành Địa Hình
+Plugin.Name,TerrainImporter V1.0,部件至地形,파트를 지형으로,地形のパーツ,Parte en Terreno,Parte para terreno,Partie du terrrain,Parte in terreno,零件到地形,Teil zu Gelände,Chuyển đổi Bộ Phận thành Địa Hình
 Plugin.Desc,Convert parts into terrain with ease.,,,,,,,,,,
 Plugin.Version,Version {1},版本 {1},버전 {1},バージョン {1},Versión {1},Versão {1},Version {1},Versione {1},版本 {1},Version {1},Phiên Bản {1}
 Plugin.Search,Search,搜索,검색,サーチ,Buscar,Pesquisar,Rechercher,Cerca,搜尋,Suchen,Tìm Kiếm
