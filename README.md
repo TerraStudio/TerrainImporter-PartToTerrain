@@ -3,6 +3,8 @@
 
   <h1>TerrainImporter V1.0</h1>
   <p>A specialized Roblox plugin for converting high-fidelity 3D meshes (GLB/OBJ) into Roblox Voxel Terrain.</p>
+  <br>
+  <p><b>Note:</b> This plugin is specifically designed and optimized for importing terrains that use 3D Mesh formats such as <b>OBJ</b> or <b>GLB/GLTF</b> (e.g. exported from Blender). It utilizes the EditableMesh API to accurately voxelize custom mesh geometry.</p>
 </div>
 
 ## Features
