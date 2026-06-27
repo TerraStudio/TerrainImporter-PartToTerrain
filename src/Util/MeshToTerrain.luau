@@ -19,15 +19,18 @@ local MeshToTerrain = {}
 -- Triangle Rasterization (surface only / hollow)
 -- Samples points along the surface of a triangle and marks corresponding voxels
 --------------------------------------------------------------------------------
-local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, filledVoxels: { [number]: { [number]: { [number]: any } } })
+local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, filledVoxels: { [number]: { [number]: { [number]: any } } }, yieldCheck: (() -> ())?)
   local v12 = v2 - v1
   local v13 = v3 - v1
 
-  -- Sample every 1.0 studs for better precision on fractional occupancy calculation
-  local stepSize = 1.0
+  -- Menggunakan stepSize = 2.0 (setengah RESOLUTION) untuk performa 4x lebih cepat
+  -- tanpa mengorbankan akurasi (diagonal 2x2 = 2.8, masih < 4)
+  local stepSize = 2.0
   
   local stepsU = math.max(1, math.ceil(v12.Magnitude / stepSize))
   local stepsV = math.max(1, math.ceil(v13.Magnitude / stepSize))
+
+  local pixelCount = 0
 
   for i = 0, stepsU do
     local u = i / stepsU
@@ -36,6 +39,11 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
     local currentStepsV = math.max(1, math.ceil(stepsV * (1 - u)))
     
     for j = 0, currentStepsV do
+      pixelCount = pixelCount + 1
+      if pixelCount % 5000 == 0 and yieldCheck then
+        yieldCheck()
+      end
+
       local v = (j / currentStepsV) * (1 - u)
       local p = v1 + v12 * u + v13 * v
 
@@ -52,18 +60,26 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
       
       -- Store exact height for top surface
       local currentTop = filledVoxels[vx][vz][vy]
+      local doFillDepth = false
+
       if type(currentTop) == "number" then
-        filledVoxels[vx][vz][vy] = math.max(currentTop, p.Y)
+        if p.Y > currentTop then
+          filledVoxels[vx][vz][vy] = p.Y
+        end
       else
         filledVoxels[vx][vz][vy] = p.Y
+        doFillDepth = true
       end
 
       -- Fill voxels below to create a solid shell (prevents holes and tearing)
-      local FILL_DEPTH = 3
-      for depth = 1, FILL_DEPTH do
-        local belowVy = vy - depth
-        if not filledVoxels[vx][vz][belowVy] then
-           filledVoxels[vx][vz][belowVy] = true -- true means solid, occupancy 1
+      -- Hanya dieksekusi SEKALI per voxel unik untuk menghemat jutaan iterasi!
+      if doFillDepth then
+        local FILL_DEPTH = 3
+        for depth = 1, FILL_DEPTH do
+          local belowVy = vy - depth
+          if not filledVoxels[vx][vz][belowVy] then
+             filledVoxels[vx][vz][belowVy] = true -- true means solid, occupancy 1
+          end
         end
       end
     end
@@ -195,6 +211,14 @@ function MeshToTerrain:Convert(
 
   reportProgress(string.format("Rasterizing %d faces...", totalFaces))
 
+  local lastYield = os.clock()
+  local function yieldCheck()
+    if os.clock() - lastYield > 0.05 then
+      task.wait()
+      lastYield = os.clock()
+    end
+  end
+
   for _, faceId in ipairs(faces) do
     local faceVerts = editableMesh:GetFaceVertices(faceId)
     if #faceVerts >= 3 then
@@ -204,15 +228,15 @@ function MeshToTerrain:Convert(
         local p2 = vertices[faceVerts[i]]
         local p3 = vertices[faceVerts[i + 1]]
         if p1 and p2 and p3 then
-          rasterizeTriangleToDict(p1, p2, p3, filledVoxels)
+          rasterizeTriangleToDict(p1, p2, p3, filledVoxels, yieldCheck)
         end
       end
     end
 
     faceCount = faceCount + 1
-    if faceCount % 2000 == 0 then
+    if faceCount % 500 == 0 then
       reportProgress(string.format("Rasterizing faces... %d/%d (%.0f%%)", faceCount, totalFaces, (faceCount / totalFaces) * 100))
-      task.wait()
+      yieldCheck()
     end
   end
 
