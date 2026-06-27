@@ -22,6 +22,11 @@ local MeshToTerrain = {}
 local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, filledVoxels: { [number]: { [number]: { [number]: any } } }, yieldCheck: (() -> ())?)
   local v12 = v2 - v1
   local v13 = v3 - v1
+  
+  local normal = v12:Cross(v13).Unit
+  if normal ~= normal or normal.Magnitude == 0 then
+    normal = Vector3.new(0, 1, 0)
+  end
 
   -- Menggunakan stepSize = 2.0 (setengah RESOLUTION) untuk performa 4x lebih cepat
   -- tanpa mengorbankan akurasi (diagonal 2x2 = 2.8, masih < 4)
@@ -76,14 +81,21 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
         filledVoxels[vx][vz][vy] = p.Y
       end
 
-      -- Selalu pastikan 3 voxel di bawah titik permukaan ini solid.
-      -- Ini mencegah hilangnya ketebalan pada lereng yang curam (bug bolong/hole).
+      -- Selalu pastikan kedalaman shell solid ke arah DALAM (berlawanan arah normal).
+      -- Ini sangat krusial untuk mencegah bolong/lubang pada tebing curam (vertical cliffs)
+      -- yang sebelumnya terlalu tipis secara horizontal sehingga terhapus oleh filter blur.
       local FILL_DEPTH = 3
       for depth = 1, FILL_DEPTH do
-        local belowVy = vy - depth
-        -- Jika voxel di bawahnya adalah angka (permukaan lebih rendah), timpa dengan true (solid) karena sekarang terkubur.
-        if filledVoxels[vx][vz][belowVy] ~= true then
-           filledVoxels[vx][vz][belowVy] = true
+        local inwardP = p - normal * (depth * RESOLUTION)
+        local ivx = math.floor(inwardP.X / RESOLUTION)
+        local ivy = math.floor(inwardP.Y / RESOLUTION)
+        local ivz = math.floor(inwardP.Z / RESOLUTION)
+
+        if not filledVoxels[ivx] then filledVoxels[ivx] = {} end
+        if not filledVoxels[ivx][ivz] then filledVoxels[ivx][ivz] = {} end
+
+        if filledVoxels[ivx][ivz][ivy] ~= true then
+           filledVoxels[ivx][ivz][ivy] = true
         end
       end
     end
@@ -98,13 +110,19 @@ local function writeSubRegion(
   subMax: Vector3,
   material: Enum.Material,
   preserveTerrain: boolean?,
-  filledVoxels: { [number]: { [number]: { [number]: any } } }
+  filledVoxels: { [number]: { [number]: { [number]: any } } },
+  reportProgress: ((string) -> ())?,
+  chunkString: string?
 )
   local region = Region3.new(subMin, subMax):ExpandToGrid(RESOLUTION)
   local regionMin = region.CFrame.Position - region.Size / 2
 
   local materialVoxels, occupancyVoxels = workspace.Terrain:ReadVoxels(region, RESOLUTION)
   local regionSize = materialVoxels.Size
+
+  if reportProgress and chunkString then
+    reportProgress("Generating voxel data for " .. chunkString .. "...")
+  end
 
   local modified = false
 
@@ -237,6 +255,9 @@ local function writeSubRegion(
       end
     end
 
+    if reportProgress and chunkString then
+      reportProgress("Writing terrain to world for " .. chunkString .. "...")
+    end
     workspace.Terrain:WriteVoxels(region, RESOLUTION, materialVoxels, occupancyVoxels)
   end
 end
