@@ -19,12 +19,12 @@ local MeshToTerrain = {}
 -- Triangle Rasterization (surface only / hollow)
 -- Samples points along the surface of a triangle and marks corresponding voxels
 --------------------------------------------------------------------------------
-local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, filledVoxels: { [number]: { [number]: { [number]: boolean } } })
+local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, filledVoxels: { [number]: { [number]: { [number]: any } } })
   local v12 = v2 - v1
   local v13 = v3 - v1
 
-  -- Sample every 1.5 studs (safely covers 4x4x4 voxel diagonals without skipping)
-  local stepSize = 1.5
+  -- Sample every 1.0 studs for better precision on fractional occupancy calculation
+  local stepSize = 1.0
   
   local stepsU = math.max(1, math.ceil(v12.Magnitude / stepSize))
   local stepsV = math.max(1, math.ceil(v13.Magnitude / stepSize))
@@ -46,10 +46,26 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
       if not filledVoxels[vx] then
         filledVoxels[vx] = {}
       end
-      if not filledVoxels[vx][vy] then
-        filledVoxels[vx][vy] = {}
+      if not filledVoxels[vx][vz] then
+        filledVoxels[vx][vz] = {}
       end
-      filledVoxels[vx][vy][vz] = true
+      
+      -- Store exact height for top surface
+      local currentTop = filledVoxels[vx][vz][vy]
+      if type(currentTop) == "number" then
+        filledVoxels[vx][vz][vy] = math.max(currentTop, p.Y)
+      else
+        filledVoxels[vx][vz][vy] = p.Y
+      end
+
+      -- Fill voxels below to create a solid shell (prevents holes and tearing)
+      local FILL_DEPTH = 3
+      for depth = 1, FILL_DEPTH do
+        local belowVy = vy - depth
+        if not filledVoxels[vx][vz][belowVy] then
+           filledVoxels[vx][vz][belowVy] = true -- true means solid, occupancy 1
+        end
+      end
     end
   end
 end
@@ -62,7 +78,7 @@ local function writeSubRegion(
   subMax: Vector3,
   material: Enum.Material,
   preserveTerrain: boolean?,
-  filledVoxels: { [number]: { [number]: { [number]: boolean } } }
+  filledVoxels: { [number]: { [number]: { [number]: any } } }
 )
   local region = Region3.new(subMin, subMax):ExpandToGrid(RESOLUTION)
   local regionMin = region.CFrame.Position - region.Size / 2
@@ -81,18 +97,30 @@ local function writeSubRegion(
       for z = 1, regionSize.Z do
         local worldVz = math.floor((regionMin.Z + (z - 0.5) * RESOLUTION) / RESOLUTION)
 
-        if filledVoxels[worldVx] and filledVoxels[worldVx][worldVy] and filledVoxels[worldVx][worldVy][worldVz] then
+        local voxelData = filledVoxels[worldVx] and filledVoxels[worldVx][worldVz] and filledVoxels[worldVx][worldVz][worldVy]
+        if voxelData ~= nil then
+          local cellOccupancy = 1
+          if type(voxelData) == "number" then
+            -- Calculate fractional occupancy based on how far p.Y is inside the voxel
+            local voxelBottomY = worldVy * RESOLUTION
+            -- We want a value between 0.1 and 1
+            cellOccupancy = math.clamp((voxelData - voxelBottomY) / RESOLUTION, 0.1, 1)
+          else
+            -- It's true (solid)
+            cellOccupancy = 1
+          end
+
           if preserveTerrain then
-            local cellOccupancy = occupancyVoxels[x][y][z]
-            if 1 > cellOccupancy then
-              occupancyVoxels[x][y][z] = 1
+            local currentOccupancy = occupancyVoxels[x][y][z]
+            if cellOccupancy > currentOccupancy then
+              occupancyVoxels[x][y][z] = cellOccupancy
             end
             local cellMaterial = materialVoxels[x][y][z]
             if cellMaterial == Enum.Material.Air then
               materialVoxels[x][y][z] = material
             end
           else
-            occupancyVoxels[x][y][z] = 1
+            occupancyVoxels[x][y][z] = cellOccupancy
             materialVoxels[x][y][z] = material
           end
           modified = true
@@ -159,8 +187,8 @@ function MeshToTerrain:Convert(
   reportProgress(string.format("Cached %d vertices.", #vertIds))
 
   -- 4. Rasterize all triangles into a sparse voxel dictionary
-  -- filledVoxels[vx][vy][vz] = true means this voxel should be terrain
-  local filledVoxels: { [number]: { [number]: { [number]: boolean } } } = {}
+  -- filledVoxels[vx][vz][vy] = exactHeight | true (solid)
+  local filledVoxels: { [number]: { [number]: { [number]: any } } } = {}
   local faces = editableMesh:GetFaces()
   local totalFaces = #faces
   local faceCount = 0
@@ -194,26 +222,26 @@ function MeshToTerrain:Convert(
   local minVx, minVy, minVz = math.huge, math.huge, math.huge
   local maxVx, maxVy, maxVz = -math.huge, -math.huge, -math.huge
 
-  for vx, yTable in pairs(filledVoxels) do
+  for vx, zTable in pairs(filledVoxels) do
     if vx < minVx then
       minVx = vx
     end
     if vx > maxVx then
       maxVx = vx
     end
-    for vy, zTable in pairs(yTable) do
-      if vy < minVy then
-        minVy = vy
+    for vz, yTable in pairs(zTable) do
+      if vz < minVz then
+        minVz = vz
       end
-      if vy > maxVy then
-        maxVy = vy
+      if vz > maxVz then
+        maxVz = vz
       end
-      for vz, _ in pairs(zTable) do
-        if vz < minVz then
-          minVz = vz
+      for vy, _ in pairs(yTable) do
+        if vy < minVy then
+          minVy = vy
         end
-        if vz > maxVz then
-          maxVz = vz
+        if vy > maxVy then
+          maxVy = vy
         end
       end
     end
