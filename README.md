@@ -16,7 +16,7 @@
 ## Usage
 1. Import your 3D chunks (`.glb` or `.gltf`) from Blender using the Roblox **3D Importer**.
 2. Make sure the objects load into the workspace as `MeshPart`s.
-3. Open the **TerrainImporter V1.0** plugin in the `Project Terra` toolbar.
+3. Open the **TerrainImporter V1.0** plugin in the Project.
 4. Select a material (e.g. Grass).
 5. Highlight all your `MeshPart` chunks in the Explorer.
 6. Hold **`Shift`** and **Click** in the viewport to batch convert them!
