@@ -191,7 +191,7 @@ local function writeSubRegion(
       passes = 3
     end
 
-    for blurPass = 1, passes do
+    for _ = 1, passes do
       -- Pass 1: Blur along X
       local tempX = table.create(regionSize.X, 0)
     for y = 1, regionSize.Y do
