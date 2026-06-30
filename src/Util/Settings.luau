@@ -6,7 +6,8 @@ local DEFAULT_SETTINGS = {
   EnabledSelectionBox = true,
   IgnoreLockedParts = false,
   PreserveTerrain = true,
-  IgnoreInvisibleParts = true
+  IgnoreInvisibleParts = true,
+  ExtraSmoothing = false
 }
 
 local Settings = {}

@@ -71,6 +71,13 @@ local function SettingsPanel()
       SettingKey = 'IgnoreInvisibleParts',
     }),
 
+    ExtraSmoothing = React.createElement(SettingsToggleItem, {
+      Title = Localization('Settings.ExtraSmoothing'),
+      LayoutOrder = nextOrder(),
+      Description = Localization('Settings.ExtraSmoothingDesc'),
+      SettingKey = 'ExtraSmoothing',
+    }),
+
     VersionText = React.createElement('TextLabel', {
       BackgroundTransparency = 1,
       FontFace = Font.fromEnum(Enum.Font.BuilderSans),

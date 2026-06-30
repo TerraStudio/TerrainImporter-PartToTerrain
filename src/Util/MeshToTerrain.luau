@@ -4,6 +4,7 @@
 -- with Voxel Region Chunking, Progress Indicator, and CPU Yielding.
 
 local Constants = require(script.Parent.Constants)
+local Settings = require(script.Parent.Settings)
 
 local TerrainEnum = require(script.Parent.TerrainEnum)
 
@@ -68,17 +69,16 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
         filledVoxels[vx][vz] = {}
       end
       
-      -- Store exact height for top surface
       local currentTop = filledVoxels[vx][vz][vy]
 
-      if currentTop ~= true then
-        if type(currentTop) == "number" then
-          if p.Y > currentTop then
-            filledVoxels[vx][vz][vy] = p.Y
-          end
-        else
+      if type(currentTop) == "number" then
+        if p.Y > currentTop then
           filledVoxels[vx][vz][vy] = p.Y
         end
+      else
+        -- Selalu prioritaskan exact height (p.Y) di atas solid fill (true)
+        -- agar presisi fraksional (anti-terasering) tidak hilang.
+        filledVoxels[vx][vz][vy] = p.Y
       end
 
       -- Selalu pastikan kedalaman shell solid ke arah DALAM (-normal) DAN ke BAWAH (-Y).
@@ -99,13 +99,14 @@ local function rasterizeTriangleToDict(v1: Vector3, v2: Vector3, v3: Vector3, fi
           filledVoxels[ivx][ivz] = {}
         end
 
-        if filledVoxels[ivx][ivz][ivy] ~= true then
+        -- Hanya isi bagian dalam jika kosong. Jangan timpa p.Y permukaan!
+        if filledVoxels[ivx][ivz][ivy] == nil then
            filledVoxels[ivx][ivz][ivy] = true
         end
 
         -- 2. Fill Downward (Mencegah sudut lembah/normals terbalik terhapus blur)
         local belowVy = vy - depth
-        if filledVoxels[vx][vz][belowVy] ~= true then
+        if filledVoxels[vx][vz][belowVy] == nil then
            filledVoxels[vx][vz][belowVy] = true
         end
       end
@@ -185,9 +186,14 @@ local function writeSubRegion(
     -- Radius 1 (3x3x3 filter) untuk kehalusan yang natural tanpa menghilangkan detail.
     -- =========================================================================
     local R = 1
+    local passes = 1
+    if Settings:Get("ExtraSmoothing") then
+      passes = 3
+    end
 
-    -- Pass 1: Blur along X
-    local tempX = table.create(regionSize.X, 0)
+    for blurPass = 1, passes do
+      -- Pass 1: Blur along X
+      local tempX = table.create(regionSize.X, 0)
     for y = 1, regionSize.Y do
       for z = 1, regionSize.Z do
         for x = 1, regionSize.X do
@@ -260,6 +266,7 @@ local function writeSubRegion(
         end
       end
     end
+    end -- end of blurPass loop
 
     -- Apply blurred materials fix-up
     for x = 1, regionSize.X do

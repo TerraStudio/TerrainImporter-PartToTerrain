@@ -15,6 +15,8 @@ Settings.PreserveTerrain,Preserve existing Terrain,,,,,,,,,,
 Settings.PreserveTerrainDesc,Existing terrain will not be overwritten.<br/><br/>NOTE: Air will delete terrain regardless of setting.,,,,,,,,,,
 Settings.IgnoreInvisibleParts,Ignore Invisible Parts,,,,,,,,,,
 Settings.IgnoreInvisiblePartsDesc,Parts that are invisible will converted and will not be highlighted when hover,,,,,,,,,,
+Settings.ExtraSmoothing,Extra Smoothing (3 Passes),,,,,,,,,,
+Settings.ExtraSmoothingDesc,Applies the Box Blur algorithm 3 times to achieve ultra-smooth rolling hills without manual brushing.,,,,,,,,,,
 Notice.Outdated,A new update is available!,,,,,,,,,,
 Notice.NoResultsFound,No results found,未找到结果,결과 없음,結果が見つかりませんでした,No se encontraron resultados,Nenhum resultado encontrado,Pas de résultats trouvés,Nessun risultato trovato,找不到結果,Keine Ergebnisse gefunden,Không tìm thấy kết quả
 Materials.Air,Air,天空,공기,空気,Aire,Ar,Air,Aria,空氣,Luft,Không Khí
